@@ -9,6 +9,11 @@ Run with:
 
 from __future__ import annotations
 
+from _bootstrap import add_repo_root_to_path, patch_warp_context_api
+
+add_repo_root_to_path()
+patch_warp_context_api()
+
 import dataclasses
 import re
 import time
@@ -16,6 +21,7 @@ from typing import Any, List, TypedDict
 
 import mujoco
 import numpy as np
+import trimesh
 import viser
 
 from mjlab.asset_zoo.robots import (
@@ -28,10 +34,47 @@ from mjlab.terrains.terrain_generator import (
   TerrainGenerator,
   TerrainGeneratorCfg,
 )
-from mjlab.viewer.viser.conversions import (
+# mjlab >= 1.3.0 moved its viser helpers into the standalone `mjviser` package,
+# which only ships the model-space `merge_geoms`. `merge_geoms_global` is ported
+# below from mjlab 1.2.0's `mjlab.viewer.viser.conversions`.
+from mjviser.conversions import (
+  create_primitive_mesh,
   merge_geoms,
-  merge_geoms_global,
+  mujoco_mesh_to_trimesh,
 )
+
+
+def merge_geoms_global(
+  mj_model: mujoco.MjModel, mj_data: mujoco.MjData, geom_ids: list[int]
+) -> trimesh.Trimesh:
+  """Merge geoms into a single trimesh in world-space coordinates.
+
+  Args:
+    mj_model: MuJoCo model containing geom definitions.
+    mj_data: MuJoCo data providing world-space transforms (geom_xpos, geom_xmat).
+    geom_ids: Geom indices to merge.
+
+  Returns:
+    Single merged trimesh with every geom transformed to its world pose.
+  """
+  meshes: list[trimesh.Trimesh] = []
+  for geom_id in geom_ids:
+    if mj_model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_MESH:
+      mesh = mujoco_mesh_to_trimesh(mj_model, geom_id)
+    else:
+      mesh = create_primitive_mesh(mj_model, geom_id)
+
+    transform = np.eye(4)
+    transform[:3, :3] = mj_data.geom_xmat[geom_id].reshape(3, 3)
+    transform[:3, 3] = mj_data.geom_xpos[geom_id]
+    mesh.apply_transform(transform)
+    meshes.append(mesh)
+
+  if not meshes:
+    return trimesh.Trimesh()
+  if len(meshes) == 1:
+    return meshes[0]
+  return trimesh.util.concatenate(meshes)
 
 # Supported robots for visualization.
 ROBOT_CFG_GETTERS = {

@@ -1,5 +1,10 @@
 """Script to train RL agent with RSL-RL."""
 
+from _bootstrap import add_repo_root_to_path, patch_warp_context_api
+
+add_repo_root_to_path()
+patch_warp_context_api()
+
 import logging
 import os
 import sys
