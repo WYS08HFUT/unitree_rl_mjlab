@@ -250,4 +250,31 @@ void test_behavior() {
           Behavior::kPassive);
     CHECK(!hold_sup.latched());
   }
+
+  // [9] Spec §6.2: rearm is only attempted while `current` is kPassive. A rearm
+  //     tick received in a non-passive behavior must be skipped even when the OK
+  //     hold is already satisfied, so the latch stays set.
+  {
+    BehaviorRouter passive_router;
+    SafetySupervisor passive_sup(cfg);
+    RobotSnapshot critical;
+    critical.pitch = 0.9f;
+    CHECK(passive_sup.update(critical, false, 0.0) == SafetyLevel::kCritical);
+    // First OK tick starts the streak at ok_since = 1.0; 2.0 - 1.0 = 1.0 s, well
+    // past rearm_hold_time, so only the `current` precondition can hold the latch.
+    CHECK(passive_sup.update(good, false, 1.0) == SafetyLevel::kCritical);
+    CHECK(passive_sup.update(good, false, 2.0) == SafetyLevel::kCritical);
+
+    ActionSet rearm_only;
+    rearm_only.rearm = true;
+    // current != kPassive: the attempt is skipped, the latch must survive.
+    CHECK(passive_router.update(rearm_only, passive_sup, Behavior::kStand, 2.0,
+                                true) == Behavior::kPassive);
+    CHECK(passive_sup.latched());
+
+    // current == kPassive at the same timestamp: the rearm now goes through.
+    CHECK(passive_router.update(rearm_only, passive_sup, Behavior::kPassive, 2.0,
+                                true) == Behavior::kPassive);
+    CHECK(!passive_sup.latched());
+  }
 }

@@ -11,8 +11,8 @@ class BehaviorRouter {
   Behavior update(const ActionSet& actions, SafetySupervisor& safety,
                   Behavior current, double now, bool velocity_enabled) {
     if (safety.latched()) {
-      if (actions.rearm && safety.tryRearm(now)) {
-        return Behavior::kPassive;
+      if (actions.rearm && current == Behavior::kPassive) {
+        safety.tryRearm(now);
       }
       return Behavior::kPassive;
     }
