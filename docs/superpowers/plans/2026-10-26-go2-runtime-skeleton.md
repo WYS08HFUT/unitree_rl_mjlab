@@ -245,7 +245,7 @@ add_executable(runtime_tests
   runtime/test_replay.cpp)
 
 target_include_directories(runtime_tests PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
 target_compile_options(runtime_tests PRIVATE -Wall -Wextra)
 
@@ -1395,13 +1395,22 @@ Runtime:
 
 ```bash
 P=$HOME/unitree_sdk2/install
-cmake -S deploy/robots/go2 -B build/go2 \
+cmake -S deploy/robots/go2 -B deploy/robots/go2/build \
   -DCMAKE_CXX_FLAGS="-I$P/include -I$P/include/ddscxx" \
   -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
-cmake --build build/go2 -j
+cmake --build deploy/robots/go2/build -j
 ```
 
-Expected: 找到 `build/go2/go2_ctrl`，退出码 0。
+Expected: 找到 `deploy/robots/go2/build/go2_ctrl`，退出码 0。
+
+验证配置能被解析（`--help` 在 DDS 初始化前退出，`param::helper` 会按二进制所在 `build/` 目录找到 `config/config.yaml`）：
+
+```bash
+LD_LIBRARY_PATH=$P/lib:$PWD/deploy/thirdparty/onnxruntime-linux-x64-1.22.0/lib \
+  deploy/robots/go2/build/go2_ctrl --help
+```
+
+Expected: 打印参数帮助，退出码 0。
 
 - [ ] **Step 4: 提交**
 
@@ -1852,10 +1861,10 @@ int main(int argc, char** argv)
 
 ```bash
 P=$HOME/unitree_sdk2/install
-cmake -S deploy/robots/go2 -B build/go2 \
+cmake -S deploy/robots/go2 -B deploy/robots/go2/build \
   -DCMAKE_CXX_FLAGS="-I$P/include -I$P/include/ddscxx" \
   -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
-cmake --build build/go2 -j
+cmake --build deploy/robots/go2/build -j
 ```
 
 Expected: 编译通过，无错误。若报 `unitree_joystick_dsl.hpp` 找不到，确认 `-I deploy/include` 已包含（`deploy/robots/go2/CMakeLists.txt` 已有）。
@@ -1895,16 +1904,16 @@ cmake --build ~/unitree_sdk2/build -j
 cmake --install ~/unitree_sdk2/build
 
 P=$HOME/unitree_sdk2/install
-cmake -S deploy/robots/go2 -B build/go2 \
+cmake -S deploy/robots/go2 -B deploy/robots/go2/build \
   -DCMAKE_CXX_FLAGS="-I$P/include -I$P/include/ddscxx" \
   -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
-cmake --build build/go2 -j
+cmake --build deploy/robots/go2/build -j
 ```
 
 Run (on a machine with a robot or unitree_mujoco, gamepad optional):
 
 ```bash
-cd build/go2 && ./go2_ctrl --network=lo
+cd deploy/robots/go2/build && ./go2_ctrl --network=lo
 ```
 
 ## Keyboard
@@ -1957,10 +1966,10 @@ cmake --build build/tests -j
 ctest --test-dir build/tests --output-on-failure
 
 P=$HOME/unitree_sdk2/install
-cmake -S deploy/robots/go2 -B build/go2 \
+cmake -S deploy/robots/go2 -B deploy/robots/go2/build \
   -DCMAKE_CXX_FLAGS="-I$P/include -I$P/include/ddscxx" \
   -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
-cmake --build build/go2 -j
+cmake --build deploy/robots/go2/build -j
 ```
 
 Expected: ctest 全通过；`go2_ctrl` 链接成功。

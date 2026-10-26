@@ -5,6 +5,7 @@
 #include "FSM/BaseState.h"
 #include "isaaclab/devices/keyboard/keyboard.h"
 #include "unitree_joystick_dsl.hpp"
+#include "runtime/ticker.h"
 
 class FSMState : public BaseState
 {
@@ -57,6 +58,7 @@ public:
     {
         lowstate->update();
         if(keyboard) keyboard->update();
+        if(runtime) runtime->tick();
     }
 
     void post_run()
@@ -67,4 +69,5 @@ public:
     static std::unique_ptr<LowCmd_t> lowcmd;
     static std::shared_ptr<LowState_t> lowstate;
     static std::shared_ptr<Keyboard> keyboard;
+    inline static std::shared_ptr<runtime::IRuntimeTicker> runtime;
 };

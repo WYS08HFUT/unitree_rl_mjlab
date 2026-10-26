@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <functional>
+#include <string>
 #include <unitree/common/thread/recurrent_thread.hpp>
 #include "BaseState.h"
 #include <spdlog/spdlog.h>
@@ -76,6 +78,16 @@ public:
     }
 
     std::vector<std::shared_ptr<BaseState>> states;
+
+    void requestState(int state) { pending_state_ = state; }
+
+    void setTransitionGate(std::function<bool(int)> gate) {
+        transition_gate_ = std::move(gate);
+    }
+
+    std::string currentStateName() const {
+        return currentState ? currentState->getStateString() : std::string();
+    }
 private:
     const double dt = 0.001;
 
@@ -87,16 +99,22 @@ private:
         
         // Check if need to change state
         int nextStateMode = 0;
-        for(int i(0); i<currentState->registered_checks.size(); i++)
-        {
-            if(currentState->registered_checks[i].first())
+        if (pending_state_ != 0) {
+            nextStateMode = pending_state_;
+            pending_state_ = 0;
+        } else {
+            for(int i(0); i<currentState->registered_checks.size(); i++)
             {
-                nextStateMode = currentState->registered_checks[i].second;
-                break;
+                if(currentState->registered_checks[i].first())
+                {
+                    nextStateMode = currentState->registered_checks[i].second;
+                    break;
+                }
             }
         }
 
-        if(nextStateMode != 0 && !currentState->isState(nextStateMode))
+        if(nextStateMode != 0 && !currentState->isState(nextStateMode) &&
+           (!transition_gate_ || transition_gate_(nextStateMode)))
         {
             for(auto & state : states)
             {
@@ -111,6 +129,9 @@ private:
             }
         }
     }
+
+    int pending_state_ = 0;
+    std::function<bool(int)> transition_gate_;
 
     std::shared_ptr<BaseState> currentState;
     unitree::common::RecurrentThreadPtr fsm_thread_;

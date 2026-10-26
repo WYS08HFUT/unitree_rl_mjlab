@@ -383,10 +383,10 @@ ctest --test-dir build/tests --output-on-failure
 2. **`go2_ctrl` 本地编译通过**（unitree_sdk2 已安装到 `~/unitree_sdk2/install`）：
    ```bash
    P=$HOME/unitree_sdk2/install
-   cmake -S deploy/robots/go2 -B build/go2 \
+   cmake -S deploy/robots/go2 -B deploy/robots/go2/build \
      -DCMAKE_CXX_FLAGS="-I$P/include -I$P/include/ddscxx" \
      -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
-   cmake --build build/go2 -j
+   cmake --build deploy/robots/go2/build -j
    ```
 3. go2 接线完成：`main.cpp`、`FSMState`/`CtrlFSM` 钩子、`State_LieDown`、YAML 配置（`State_RLBase` 命令注入留到下一轮）
 4. 适配层文件 ≤ ~150 行且显式列出依赖的 SDK 头文件
