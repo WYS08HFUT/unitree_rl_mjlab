@@ -26,15 +26,16 @@
 | 策略 | 本轮不训练；Velocity 仅占位，行走验证后置 |
 | 安全响应 | 分级响应（DEGRADED / CRITICAL）+ CRITICAL 锁存需人工复位 |
 | 架构 | 运行时段包在现有 FSM 外层；核心纯逻辑可单测，适配层依赖 SDK |
-| 验证 | 纯 C++ 单测 + 离线回放；仿真/真机联调在装有 unitree_sdk2 的机器执行 |
+| 验证 | 纯 C++ 单测 + 离线回放 + `go2_ctrl` 本地编译（unitree_sdk2 已安装到 `~/unitree_sdk2/install`）；unitree_mujoco 端到端联调后置 |
 
 ## 3. 非目标
 
 - 策略训练、ONNX 导出、unitree_mujoco 走跑联调
+- 本轮 go2 配置不启用 `Velocity` 状态（无 ONNX 时 `State_RLBase` 构造会失败）
 - 目标跟随、局部避障、导航（仅预留 `AUTO` 命令源）
 - Posture RL 策略（站立/卧下用脚本化插值）
 - 修改其他机器人（g1、h1_2、a2、as2、r1、h2）的配置或行为
-- 安装 unitree_sdk2 / cyclonedds / glfw
+- 构建 `simulate/`（缺 GLFW 头文件，且无可用显示会话）
 
 ## 4. 架构
 
@@ -165,7 +166,9 @@ class IRuntimeTicker {
 | `kPassive` | `Passive` | 阻尼，安全/急停落点 |
 | `kStand` | `FixStand` | 脚本化起立并保持 |
 | `kLie` | `LieDown` | 脚本化卧下并保持（新增） |
-| `kVelocity` | `Velocity` | ONNX 策略（本轮无策略，仅占位） |
+| `kVelocity` | `Velocity` | ONNX 策略；**本轮不启用**（无策略），策略就绪后加回 |
+
+`kVelocity` 在本轮 go2 配置中被移除：`CtrlFSM` 会在启动时构造所有状态，而 `State_RLBase` 构造即加载 ONNX，缺失会直接抛异常。bridge 对"状态缺失"已有兜底（禁用对应动作并 warning），因此拆分策略训练与运行时骨架两轮。
 
 ### 6.2 动作优先级
 
@@ -268,7 +271,7 @@ go2 的 `main.cpp` 需从 `nullptr` 改为 `std::make_shared<Keyboard>()`（参�
 - 现有 DSL `transitions` 在 go2 配置中清空，统一由运行时请求；其他机器人配置不动，行为不变
 - bridge 启动时用 `FSMStringMap` 把 Behavior 解析为状态 id；某个状态缺失（例如未配置 `LieDown`）时禁用对应动作并打 warning，而不是运行时崩溃
 - `main.cpp` 构造 bridge 后注入两个回调：`request_state(int)` 与 `current_state_name()`，并把 FSM 的 gate 设为 `bridge.allowTransition`；bridge 因此不直接依赖 `CtrlFSM` 类型
-- `kVelocity` 还要求对应 `policy.onnx` 存在；缺失时忽略 `velocity` 动作并 warning（避免进入会抛异常的 `State_RLBase` 构造）
+- 本轮 go2 配置不启用 `Velocity`，因此无需 ONNX；未来加回该状态时，bridge 校验 `policy.onnx` 存在，缺失则忽略 `velocity` 动作并 warning
 
 ## 8. 新增 State_LieDown
 
@@ -340,7 +343,7 @@ Runtime:
     rearm: "LT + right.on_pressed"
 ```
 
-并清空 go2 各状态的 `transitions`（保留 `FixStand` 的 `kp/kd/ts/qs`，新增 `LieDown`）。
+并清空 go2 各状态的 `transitions`（保留 `FixStand` 的 `kp/kd/ts/qs`，新增 `LieDown`），同时**移除 `Velocity` 状态配置**（本轮无策略）。
 
 `deploy.yaml` 的观测限幅仍是速度上限的唯一来源；bridge 读取后传给 `RuntimeConfig`，避免两处配置漂移。
 
@@ -375,23 +378,46 @@ ctest --test-dir build/tests --output-on-failure
 ## 11. 验收标准（DoD）
 
 1. `ctest` 全部通过，贴出实际输出
-2. go2 接线完成：`main.cpp`、`FSMState`/`CtrlFSM` 钩子、`State_RLBase` 指针切换、`State_LieDown`、YAML 配置
-3. 适配层文件 ≤ ~150 行且显式列出依赖的 SDK 头文件，便于在装有 SDK 的机器首次编译
-4. 其他机器人零影响：未改它们的配置；共享类新增成员在 bridge 为 `nullptr` 时行为不变
-5. `deploy/robots/go2/README.md`：按键表、安全行为、锁存/复位流程、仿真/真机启动步骤
-6. 按 TDD 小步提交
+2. **`go2_ctrl` 本地编译通过**（unitree_sdk2 已安装到 `~/unitree_sdk2/install`）：
+   ```bash
+   P=$HOME/unitree_sdk2/install
+   cmake -S deploy/robots/go2 -B build/go2 \
+     -DCMAKE_CXX_FLAGS="-I$P/include -I$P/include/ddscxx" \
+     -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
+   cmake --build build/go2 -j
+   ```
+3. go2 接线完成：`main.cpp`、`FSMState`/`CtrlFSM` 钩子、`State_RLBase` 指针切换、`State_LieDown`、YAML 配置
+4. 适配层文件 ≤ ~150 行且显式列出依赖的 SDK 头文件
+5. 其他机器人零影响：未改它们的配置；共享类新增成员在 bridge 为 `nullptr` 时行为不变
+6. `deploy/robots/go2/README.md`：按键表、安全行为、锁存/复位流程、编译命令、仿真/真机启动步骤
+7. 按 TDD 小步提交
 
 ## 12. 风险与限制
 
-- **无法本机编译 go2_ctrl**：缺 unitree_sdk2/cyclonedds/glfw；适配层与接线只能静态审阅，首次编译可能暴露 include/API 细节问题
-- **无策略**：本轮 Velocity 只是占位，行走能力未验证
+- **能编译、不能跑**：`go2_ctrl` 已可用本地 SDK 编译；但无策略、无 GLFW/显示会话，无法跑 unitree_mujoco 端到端
+- **SDK 非系统安装**：sudo 在容器内被禁用，SDK 装在 `~/unitree_sdk2/install`；仓库构建需要显式传 include/link flags（见 DoD），README 会写明
+- **无策略**：本轮 Velocity 状态不启用，行走能力未验证
 - **键盘语义**：终端无 key-up，采用点按设定值；长按/组合键由手柄承担
 - **阈值需实测**：0.35/0.60 rad 等为初始值，真机需重新标定
 - **LieDown 姿态未标定**：首版用保守收腿姿态，需在仿真/真机确认
 
 ## 13. 后续工作
 
-1. 在装有 SDK 的机器编译 go2_ctrl，接入 ONNX 策略，在 unitree_mujoco 完成走跑与安全联调
-2. 训练/导出 Go2 Flat 策略（`src/tasks/velocity/config/go2`）
+1. 安装 GLFW 后构建 `simulate/`，接入 ONNX 策略，在 unitree_mujoco 完成走跑与安全联调
+2. 训练/导出 Go2 Flat 策略（`src/tasks/velocity/config/go2`），并把 `Velocity` 状态加回 go2 配置
 3. 里程碑 3：`AUTO` 命令源接入目标跟随 + 局部避障，复用本设计的仲裁与安全门
 4. 里程碑 4：真机分阶段验证（站立 → 低速 → 行走 → 技能切换）
+
+## 14. 附录：本地 SDK 环境（已完成）
+
+```bash
+git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2.git ~/unitree_sdk2
+cmake -S ~/unitree_sdk2 -B ~/unitree_sdk2/build \
+  -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX=$HOME/unitree_sdk2/install
+cmake --build ~/unitree_sdk2/build -j
+cmake --install ~/unitree_sdk2/build
+```
+
+- SDK 自带预编译 cyclonedds（`thirdparty/lib/x86_64/libddsc.so`、`libddscxx.so`）与 `libunitree_sdk2.a`，无需单独编译 DDS
+- 容器内 sudo 被禁用（`no new privileges`），因此不装 `/usr/local`，改用本地前缀 + include/link flags
+- 已验证：`go2_ctrl` 用该前缀编译并链接成功；`simulate` 因缺 `GLFW/glfw3.h` 未构建
