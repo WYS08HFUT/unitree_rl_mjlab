@@ -4,18 +4,14 @@ FSM:
       id: 1
     FixStand:
       id: 2
-    Velocity:
-      id: 3
-      type: RLBase
+    LieDown:
+      id: 4
   Passive:
-    transitions: 
-      FixStand: LT + up.on_pressed
+    transitions: {}
     mode: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     kd: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
   FixStand:
-    transitions: 
-      Passive: LT + B.on_pressed
-      Velocity: RT + A.on_pressed
+    transitions: {}
     kp: [60, 80, 80, 60, 80, 80, 60, 80, 80, 60, 80, 80]
     kd: [5, 4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4]
     ts: [0, 1, 2]
@@ -24,8 +20,50 @@ FSM:
       [0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65],
       [0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5],
     ]
+  LieDown:
+    transitions: {}
+    kp: [60, 80, 80, 60, 80, 80, 60, 80, 80, 60, 80, 80]
+    kd: [5, 4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4]
+    ts: [0.0, 1.5]
+    qs:
+      - []
+      - [0.0, 1.45, -2.70, 0.0, 1.45, -2.70, 0.0, 1.45, -2.70, 0.0, 1.45, -2.70]
   Velocity:
-    transitions: 
-      Passive: LT + B.on_pressed
     policy_dir: config/policy/velocity
-    
+
+Runtime:
+  velocity_enabled: false
+  velocity_params: config/policy/velocity/v0/params/deploy.yaml
+  command:
+    deadzone: 0.05
+    accel_limit: 2.0
+    yaw_accel_limit: 4.0
+  safety:
+    tilt_degraded: 0.35
+    tilt_critical: 0.60
+    gyro_degraded: 3.5
+    gyro_critical: 6.0
+    joint_vel_degraded: 30.0
+    joint_vel_critical: 50.0
+    action_jump_critical: 1.5
+    recover_time: 0.5
+    rearm_hold_time: 0.5
+  keyboard:
+    stand: "1"
+    lie: "2"
+    velocity: "3"
+    passive: "0"
+    estop: "x"
+    rearm: "r"
+    vx_step: 0.1
+    vy_step: 0.1
+    wz_step: 0.2
+    slow_scale: 0.4
+    slow_toggle: "z"
+  gamepad:
+    stand: "LT + up.on_pressed"
+    lie: "LT + down.on_pressed"
+    velocity: "RT + A.on_pressed"
+    passive: "LT + B.on_pressed"
+    estop: "RT + B.on_pressed"
+    rearm: "LT + right.on_pressed"
