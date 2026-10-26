@@ -16,7 +16,7 @@ add_executable(runtime_tests
   runtime/test_replay.cpp)
 
 target_include_directories(runtime_tests PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
 target_compile_options(runtime_tests PRIVATE -Wall -Wextra)
 
