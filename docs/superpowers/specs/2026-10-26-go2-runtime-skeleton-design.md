@@ -92,7 +92,7 @@ CtrlFSM::run_()
 
 - `Runtime` 持有核心状态（锁存、计时、命令目标、安全等级）；不持有 SDK 对象
 - `GamepadAdapter` 只读 `lowstate->joystick`，不修改
-- `Go2RuntimeBridge` 实现 `IRuntimeTicker`，持有 `Runtime`、虚拟 `UnitreeJoystick`（仅供 `State_RLBase` 的观测读取命令），以及 `Behavior → FSM id` 映射
+- `Go2RuntimeBridge` 实现 `IRuntimeTicker`，持有 `Runtime`、`Behavior → FSM id` 映射与安全门
 - `FSMState` 新增静态 `std::shared_ptr<IRuntimeTicker>`（与 `lowcmd`/`keyboard` 同样式），所有机器人默认为 `nullptr`；共享层因此不需要 include 任何 go2 头文件
 
 ## 5. 核心接口
@@ -107,9 +107,9 @@ struct MotionCommand { float vx{0}; float vy{0}; float wz{0}; };
 struct RobotSnapshot {
   float roll{0}, pitch{0};          // rad，由四元数换算，适配层填充
   float gyro_norm{0};               // rad/s
-  bool  joint_limits_ok{true};
+  float max_joint_vel{0};           // 12 个关节中 |dq| 的最大值
   bool  action_finite{true};
-  bool  action_jump{false};         // 由动作层判定后传入
+  bool  action_jump{false};         // 由 Runtime::notifyAction 维护
 };
 struct ActionSet {
   bool stand{false}, lie{false}, velocity{false}, passive{false};
@@ -131,7 +131,9 @@ class Runtime {
   TickOutput tick(double now, const RobotSnapshot& robot,
                   const ActionSet& gamepad_actions,
                   const MotionCommand& gamepad_motion,
+                  bool gamepad_fresh,
                   const KeyPulse& key);                  // 时间/输入由外部注入，可回放
+  void notifyAction(const float* q, std::size_t n, double now);  // 动作 NaN/跳变检测
   bool allowTransition(Behavior target) const;           // 供 CtrlFSM gate 使用
   void setCurrentBehavior(Behavior actual);              // 每 tick 用 FSM 实际状态校准
   const MotionCommand& command() const;
@@ -222,16 +224,16 @@ go2 的 `main.cpp` 需从 `nullptr` 改为 `std::make_shared<Keyboard>()`（参�
 - 优先级：`kSafety`（全零）> `kAuto`（本轮恒零）> `kManual`
 - 限幅：`lin_vel_x`、`lin_vel_y`、`ang_vel_z`，由适配层从 `deploy.yaml` 的 `commands.base_velocity.ranges` 读取后传入
 - 死区：0.05；斜率：2.0 m/s²、4.0 rad/s²
-- 输入超时：仅作用于**流式来源**（手柄轴、未来的 AUTO 命令）；键盘设定值不会因"没有新按键"而超时，只能用 `space` 清零
 - 仅在 `kVelocity` 输出非零；`kPassive/kStand/kLie` 恒零
+- 手柄失联（`gamepad_fresh=false`）时回退到键盘设定值，不引入额外超时状态（YAGNI）
 
-### 6.6 命令写入策略观测
+### 6.6 命令注入（下一轮，随 Velocity 一起做）
 
-`State_RLBase` 的观测从 `env->robot->data.joystick` 读速度。做法：
+本轮不启用 `Velocity`，mux 的输出只用于日志/测试，不注入策略。下一轮启用策略时再做：
 
-1. bridge 持有一个 `UnitreeJoystick virtual_joystick_`，将 `lx/ly/rx` 的 `smooth` 设为 1.0、`deadzone` 设为 0.0
-2. 每 tick 用仲裁后的物理命令按 `deploy.yaml` 限幅归一化后 `extract(...)`：`ly = vx / max_vx`、`lx = -vy / max_vy`、`rx = -wz / max_wz`（与现有观测 `vx=ly, vy=-lx, wz=-rx` 的符号约定一致）
-3. `State_RLBase` 新增 `enter()/exit()`：`enter()` 把 `env->robot->data.joystick` 指向该对象；`exit()` 还原为构造时保存的原始指针
+1. bridge 持有一个 `UnitreeJoystick virtual_joystick_`，`lx/ly/rx` 的 `smooth=1.0`、`deadzone=0.0`
+2. 每 tick 把仲裁后的物理命令直接写入 `extract(...)`：`ly = vx`、`lx = -vy`、`rx = -wz`（观测侧会按 `deploy.yaml` 的 `ranges` 截断，不能再归一化一次）
+3. `State_RLBase` 增加 `enter()/exit()`，把 `env->robot->data.joystick` 指向该对象并还原
 
 这样不需要修改共享的 `observations.h`。
 
@@ -252,7 +254,7 @@ go2 的 `main.cpp` 需从 `nullptr` 改为 `std::make_shared<Keyboard>()`（参�
 `RobotSnapshot` 由适配层填充：四元数→roll/pitch、`lowstate` 角速度范数、关节速度、动作层给出的 NaN/跳变标志。
 
 - **指令时延**只对未来的 AUTO 命令源有意义：手动命令每 tick 重新生成，age 恒为 0。本轮该检查保留但不触发，作为接入感知/导航前的占位。
-- **动作跳变**由 `State_RLBase` 侧计算：保存上一 tick 的关节目标，任一关节非有限值或 `|Δq| > action_jump_critical` 即置 `action_jump=true`；该标志由 bridge 在下一 tick 的 `RobotSnapshot` 中传入。
+- **动作跳变**由 `Runtime::notifyAction(q, n, now)` 计算：保存上一 tick 的关节目标，任一关节非有限值或 `|Δq| > action_jump_critical` 即置标志；`State_RLBase::run()` 每 tick 调用它（Velocity 启用后生效）
 - 阈值为初始值，全部来自 YAML，允许现场覆盖。
 
 ### 7.2 响应
@@ -271,7 +273,7 @@ go2 的 `main.cpp` 需从 `nullptr` 改为 `std::make_shared<Keyboard>()`（参�
 - 现有 DSL `transitions` 在 go2 配置中清空，统一由运行时请求；其他机器人配置不动，行为不变
 - bridge 启动时用 `FSMStringMap` 把 Behavior 解析为状态 id；某个状态缺失（例如未配置 `LieDown`）时禁用对应动作并打 warning，而不是运行时崩溃
 - `main.cpp` 构造 bridge 后注入两个回调：`request_state(int)` 与 `current_state_name()`，并把 FSM 的 gate 设为 `bridge.allowTransition`；bridge 因此不直接依赖 `CtrlFSM` 类型
-- 本轮 go2 配置不启用 `Velocity`，因此无需 ONNX；未来加回该状态时，bridge 校验 `policy.onnx` 存在，缺失则忽略 `velocity` 动作并 warning
+- 本轮 `RuntimeConfig.velocity_enabled=false` 且 go2 配置不启用 `Velocity` 状态，因此无需 ONNX；未来加回时置为 true 并校验 `policy.onnx` 存在
 
 ## 8. 新增 State_LieDown
 
@@ -305,11 +307,11 @@ FSM:
 
 ```yaml
 Runtime:
+  velocity_enabled: false
   command:
     deadzone: 0.05
     accel_limit: 2.0
     yaw_accel_limit: 4.0
-    stale_timeout: 0.10
   safety:
     tilt_degraded: 0.35
     tilt_critical: 0.60
@@ -360,7 +362,7 @@ Runtime:
 | 文件 | 覆盖 |
 |---|---|
 | `test_keyboard_map.cpp` | 动作键、未知键忽略、步长累加与限幅、慢速切换、space 清零 |
-| `test_command_mux.cpp` | 优先级、限幅、死区、斜率、超时归零、非 Velocity 输出零 |
+| `test_command_mux.cpp` | 优先级、限幅、死区、斜率、非 Velocity 输出零 |
 | `test_safety.cpp` | 各阈值边界、DEGRADED 自动恢复、CRITICAL 锁存、NaN、指令时延、抖动不误触发 |
 | `test_behavior.cpp` | 动作优先级、锁存拒绝 stand/velocity、rearm 时序、rearm 后仍需显式 stand |
 | `test_replay.cpp` | 时间线回放：`Passive → Stand → 倾角 DEGRADED → 恢复 → Velocity → 软急停 → 锁存 → rearm → Stand`，以及 `Stand → Lie → Stand`、过期 rearm 被拒 |
@@ -386,7 +388,7 @@ ctest --test-dir build/tests --output-on-failure
      -DCMAKE_EXE_LINKER_FLAGS="-L$P/lib -Wl,-rpath,$P/lib"
    cmake --build build/go2 -j
    ```
-3. go2 接线完成：`main.cpp`、`FSMState`/`CtrlFSM` 钩子、`State_RLBase` 指针切换、`State_LieDown`、YAML 配置
+3. go2 接线完成：`main.cpp`、`FSMState`/`CtrlFSM` 钩子、`State_LieDown`、YAML 配置（`State_RLBase` 命令注入留到下一轮）
 4. 适配层文件 ≤ ~150 行且显式列出依赖的 SDK 头文件
 5. 其他机器人零影响：未改它们的配置；共享类新增成员在 bridge 为 `nullptr` 时行为不变
 6. `deploy/robots/go2/README.md`：按键表、安全行为、锁存/复位流程、编译命令、仿真/真机启动步骤
@@ -403,7 +405,7 @@ ctest --test-dir build/tests --output-on-failure
 
 ## 13. 后续工作
 
-1. 安装 GLFW 后构建 `simulate/`，接入 ONNX 策略，在 unitree_mujoco 完成走跑与安全联调
+1. 启用 `Velocity` 状态、实现 `State_RLBase` 命令注入；安装 GLFW 后构建 `simulate/`，接入 ONNX 策略做走跑与安全联调
 2. 训练/导出 Go2 Flat 策略（`src/tasks/velocity/config/go2`），并把 `Velocity` 状态加回 go2 配置
 3. 里程碑 3：`AUTO` 命令源接入目标跟随 + 局部避障，复用本设计的仲裁与安全门
 4. 里程碑 4：真机分阶段验证（站立 → 低速 → 行走 → 技能切换）
