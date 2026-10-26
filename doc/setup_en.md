@@ -62,7 +62,7 @@ git clone https://github.com/unitreerobotics/unitree_rl_mjlab.git
 sudo apt install -y libyaml-cpp-dev libboost-all-dev libeigen3-dev libspdlog-dev libfmt-dev
 ```
 
-All other dependencies are specified in the setup.py file.
+All other dependencies are specified in the pyproject.toml file.
 Navigate to the project root directory and install them with:
 
 ```bash

@@ -1,17 +1,9 @@
-"""Installation script for the 'unitree_rl_mjlab' python package."""
+"""Legacy installation entry point.
 
-from setuptools import setup, find_packages
+All packaging metadata lives in ``pyproject.toml``; this shim only keeps
+``python setup.py ...`` invocations working for older tooling.
+"""
 
-# Minimum dependencies required prior to installation
-INSTALL_REQUIRES = [
-    "mjlab==1.2.0",
-    "mujoco-warp==3.5.0",
-]
+from setuptools import setup
 
-# Installation operation
-setup(
-    name="unitree_rl_mjlab",
-    packages=["src"],
-    version="0.0.1",
-    install_requires=INSTALL_REQUIRES,
-)
+setup()

@@ -1,0 +1,87 @@
+# Packaging metadata for Unitree RL Mjlab.
+#
+# The Python code lives in the top-level ``src`` package and is imported as
+# ``src`` (e.g. ``from src import SRC_PATH``), so that name is kept as-is.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unitree_rl_mjlab"
+version = "0.0.1"
+description = "Reinforcement learning for Unitree robots built on mjlab and MuJoCo."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Unitree Robotics" }]
+keywords = [
+  "reinforcement-learning",
+  "robotics",
+  "mujoco",
+  "sim2real",
+  "unitree",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+  # Core simulation / RL framework. mjlab's API changes quickly, so this
+  # project tracks the exact versions it is developed against.
+  "mjlab==1.2.0",
+  # mujoco-warp 3.5.0 is built against the MuJoCo 3.5 API; newer MuJoCo
+  # releases removed enums it imports, so the pair is pinned together.
+  "mujoco-warp==3.5.0",
+  "mujoco==3.5.0",
+  # mjlab 1.2.0 still uses the legacy `warp.context` API, which newer
+  # warp-lang releases removed.
+  "warp-lang>=1.12.0,<1.13",
+  # mjlab 1.2.0 imports scipy (terrains) at runtime without declaring it.
+  "scipy>=1.11",
+  # Direct imports in src/ and scripts/. All of these are also required by
+  # mjlab; they are listed here because this project imports them directly.
+  "numpy>=1.26",
+  "torch>=2.7.0",
+  "rsl-rl-lib==5.0.1",
+  "tyro>=1.0.1",
+  "tqdm>=4.66.0",
+  "prettytable>=3.0.0",
+  "viser>=1.0.24",
+  # rsl-rl-lib 5.0.1 passes `start_method` to wandb.Settings, which newer
+  # wandb releases removed.
+  "wandb>=0.22.3,<0.23",
+]
+
+[project.urls]
+Homepage = "https://github.com/unitreerobotics/unitree_rl_mjlab"
+Repository = "https://github.com/unitreerobotics/unitree_rl_mjlab"
+Issues = "https://github.com/unitreerobotics/unitree_rl_mjlab/issues"
+
+[tool.setuptools]
+license-files = ["LICENCE"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*"]
+
+# MuJoCo models, meshes and motion files are resolved relative to the package
+# directory (``SRC_PATH``), so they must be shipped with the wheel as well.
+[tool.setuptools.package-data]
+src = [
+  "assets/robots/*/xmls/*.xml",
+  "assets/robots/*/xmls/assets/*.STL",
+  "assets/robots/*/xmls/assets/*.stl",
+  "assets/robots/*/xmls/assets/*.obj",
+  "assets/motions/*/*.csv",
+  "assets/motions/*/*.npz",
+]
