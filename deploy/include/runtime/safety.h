@@ -65,6 +65,11 @@ class SafetySupervisor {
     if (estop || !robot.action_finite || robot.action_jump) {
       return SafetyLevel::kCritical;
     }
+    if (!std::isfinite(robot.roll) || !std::isfinite(robot.pitch) ||
+        !std::isfinite(robot.gyro_norm) ||
+        !std::isfinite(robot.max_joint_vel)) {
+      return SafetyLevel::kCritical;
+    }
     const float tilt = std::max(std::fabs(robot.roll), std::fabs(robot.pitch));
     if (tilt > cfg_.tilt_critical || robot.gyro_norm > cfg_.gyro_critical ||
         robot.max_joint_vel > cfg_.joint_vel_critical) {

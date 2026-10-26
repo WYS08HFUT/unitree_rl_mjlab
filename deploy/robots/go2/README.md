@@ -31,7 +31,7 @@ cd deploy/robots/go2/build && ./go2_ctrl --network=lo
 | `1` | stand |
 | `2` | lie down |
 | `0` | passive |
-| `3` | velocity (disabled until a policy is installed) |
+| `3` | velocity — needs `exported/policy.onnx`, `Velocity` back in `FSM._`, and `Runtime.velocity_enabled: true` |
 | `x` | software E-stop (latch) |
 | `r` | re-arm (needs 0.5 s of safe state) |
 | `w/s` | vx +/- 0.1 m/s |
@@ -39,6 +39,13 @@ cd deploy/robots/go2/build && ./go2_ctrl --network=lo
 | `q/e` | wz +/- 0.2 rad/s |
 | `space` | zero command |
 | `z` | toggle slow mode (x0.4) |
+
+Without a TTY (`isatty(stdin) == false`) the keyboard is disabled and only the
+gamepad is available; this includes the software E-stop.
+
+The motion keys drive the manual command only while the gamepad is lost
+(`isJoystickTimeout()`). A connected gamepad always owns the manual command, so
+a centred stick stops the robot instead of restoring the keyboard setpoint.
 
 ## Gamepad (DSL)
 
@@ -52,9 +59,12 @@ cd deploy/robots/go2/build && ./go2_ctrl --network=lo
 
 ## Safety
 
-- DEGRADED (tilt > 0.35 rad, gyro > 3.5 rad/s, joint vel > 30 rad/s): command zeroed, posture held, auto-recovers after 0.5 s.
-- CRITICAL (tilt > 0.60 rad, gyro > 6 rad/s, joint vel > 50 rad/s, NaN/jump, E-stop): command zeroed, transition to Passive, latched.
+- DEGRADED (tilt > 0.35 rad, gyro > 3.5 rad/s, joint vel > 30 rad/s): behavior held; commands zeroed; auto-recovers after 0.5 s.
+- CRITICAL (tilt > 0.60 rad, gyro > 6 rad/s, joint vel > 50 rad/s, E-stop): command zeroed, transition to Passive, latched.
+- Non-finite attitude, gyro or joint-speed data is CRITICAL: the supervisor fails closed instead of reading NaN as healthy.
+- NaN/jump action detection is wired next round via `State_RLBase::notifyAction` (inactive while Velocity is disabled).
 - Re-arm only in Passive after 0.5 s of OK; then press `1` (stand) explicitly.
+- LieDown `qs` is provisional — calibrate on hardware before use.
 - Thresholds live under `Runtime.safety` in `config/config.yaml`.
 
 ## Tests

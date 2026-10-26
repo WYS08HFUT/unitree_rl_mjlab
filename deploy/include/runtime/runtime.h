@@ -66,13 +66,8 @@ class Runtime {
     behavior_ =
         router_.update(actions, safety_, behavior_, now, cfg_.velocity_enabled);
 
-    const bool pad_active =
-        gamepad_fresh &&
-        (std::fabs(gamepad_motion.vx) + std::fabs(gamepad_motion.vy) +
-             std::fabs(gamepad_motion.wz) >
-         1e-3f);
     const MotionCommand manual =
-        pad_active ? gamepad_motion : keyboard_.setpoint();
+        gamepad_fresh ? gamepad_motion : keyboard_.setpoint();
 
     const MotionCommand command = mux_.update(
         manual, behavior_ == Behavior::kVelocity && safety == SafetyLevel::kOk,

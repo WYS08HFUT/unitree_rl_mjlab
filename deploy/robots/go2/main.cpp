@@ -1,4 +1,6 @@
 // deploy/robots/go2/main.cpp
+#include <unistd.h>
+
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -78,7 +80,12 @@ int main(int argc, char** argv)
     std::cout << "     Go2 Controller \n";
 
     // 键盘在 --help/--version 之后创建，避免静态析构阶段终止（Keyboard 线程未被 join）
-    FSMState::keyboard = std::make_shared<Keyboard>();
+    // 没有 TTY 时构造键盘毫无意义（且终端读取会失败），只保留手柄控制。
+    if (isatty(STDIN_FILENO)) {
+        FSMState::keyboard = std::make_shared<Keyboard>();
+    } else {
+        spdlog::warn("stdin is not a TTY: keyboard controls and software E-stop unavailable");
+    }
 
     unitree::robot::ChannelFactory::Instance()->Init(0, vm["network"].as<std::string>());
 

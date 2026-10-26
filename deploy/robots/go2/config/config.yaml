@@ -28,6 +28,7 @@ FSM:
     qs:
       - []
       - [0.0, 1.45, -2.70, 0.0, 1.45, -2.70, 0.0, 1.45, -2.70, 0.0, 1.45, -2.70]
+  # Kept for the next round (policy ranges); not enabled in the map above.
   Velocity:
     policy_dir: config/policy/velocity
 
@@ -55,6 +56,13 @@ Runtime:
     passive: "0"
     estop: "x"
     rearm: "r"
+    vx_up: "w"
+    vx_down: "s"
+    vy_up: "a"
+    vy_down: "d"
+    wz_up: "q"
+    wz_down: "e"
+    stop: "space"
     vx_step: 0.1
     vy_step: 0.1
     wz_step: 0.2

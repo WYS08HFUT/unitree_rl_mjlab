@@ -1,4 +1,6 @@
 // deploy/tests/runtime/test_safety.cpp
+#include <limits>
+
 #include "runtime/safety.h"
 #include "test_framework.h"
 
@@ -181,4 +183,31 @@ void test_safety() {
   CHECK(recover_reset.update(soft_tilt, false, 1.25) == SafetyLevel::kDegraded);
   CHECK(recover_reset.update(good, false, 1.5) == SafetyLevel::kDegraded);
   CHECK(recover_reset.update(good, false, 2.0) == SafetyLevel::kOk);  // 0.5 after restart
+
+  // Non-finite robot data must fail closed: a NaN/inf snapshot value compares
+  // false against every `>` threshold and would otherwise read as healthy.
+  // Latching means each case needs a fresh supervisor.
+  SafetySupervisor nan_roll_guard(cfg);
+  RobotSnapshot nan_roll;
+  nan_roll.roll = std::numeric_limits<float>::quiet_NaN();
+  CHECK(nan_roll_guard.update(nan_roll, false, 0.0) == SafetyLevel::kCritical);
+  CHECK(nan_roll_guard.latched());
+
+  SafetySupervisor inf_pitch_guard(cfg);
+  RobotSnapshot inf_pitch;
+  inf_pitch.pitch = std::numeric_limits<float>::infinity();
+  CHECK(inf_pitch_guard.update(inf_pitch, false, 0.0) == SafetyLevel::kCritical);
+  CHECK(inf_pitch_guard.latched());
+
+  SafetySupervisor nan_gyro_guard(cfg);
+  RobotSnapshot nan_gyro;
+  nan_gyro.gyro_norm = std::numeric_limits<float>::quiet_NaN();
+  CHECK(nan_gyro_guard.update(nan_gyro, false, 0.0) == SafetyLevel::kCritical);
+  CHECK(nan_gyro_guard.latched());
+
+  SafetySupervisor nan_joint_guard(cfg);
+  RobotSnapshot nan_joint;
+  nan_joint.max_joint_vel = std::numeric_limits<float>::quiet_NaN();
+  CHECK(nan_joint_guard.update(nan_joint, false, 0.0) == SafetyLevel::kCritical);
+  CHECK(nan_joint_guard.latched());
 }

@@ -20,8 +20,9 @@ void test_replay() {
   CHECK(rt.tick(0.02, good, ActionSet{}, MotionCommand{}, true, tap("3")).behavior ==
         Behavior::kVelocity);
 
-  rt.tick(0.04, good, ActionSet{}, MotionCommand{}, true, tap("w"));
-  TickOutput out = rt.tick(0.06, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+  // Pad lost: freshness alone routes the keyboard setpoint into the mux.
+  rt.tick(0.04, good, ActionSet{}, MotionCommand{}, false, tap("w"));
+  TickOutput out = rt.tick(0.06, good, ActionSet{}, MotionCommand{}, false, KeyPulse{});
   CHECK(out.command.vx > 0.0f);
 
   RobotSnapshot tilt;
@@ -72,14 +73,16 @@ void test_replay() {
   CHECK(rt.allowTransition(Behavior::kStand));
   CHECK(rt.allowTransition(Behavior::kLie));
 
-  // [2] Manual source arbitration. The keyboard setpoint is +0.1 (one `w` tap),
-  //     so any output above 0.1 proves the fresh gamepad axes won; falling back
-  //     to exactly 0.1 proves the keyboard won for stale / near-zero axes.
+  // [2] Manual source arbitration: freshness alone selects the source. The
+  //     keyboard setpoint is +0.1 (one `w` tap while the pad is lost), so any
+  //     output above 0.1 proves the fresh gamepad axes won; falling back to
+  //     exactly 0.1 proves the keyboard won when the pad is stale.
   {
     Runtime source_rt(RuntimeConfig{});
     CHECK(source_rt.tick(0.00, good, ActionSet{}, MotionCommand{}, true, tap("3"))
               .behavior == Behavior::kVelocity);
-    source_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, true, tap("w"));
+    // The pad is lost here, which is the only case where the keyboard drives.
+    source_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, false, tap("w"));
 
     MotionCommand pad;
     pad.vx = 0.9f;
@@ -94,11 +97,23 @@ void test_replay() {
         source_rt.tick(0.08, good, ActionSet{}, pad, false, KeyPulse{});
     CHECK(std::fabs(stale.command.vx - 0.1f) < 1e-6f);  // keyboard setpoint
 
+    // A fresh but off-centre pad below the deadzone is a zero target, not a
+    // reason to resurrect the stale keyboard setpoint: the output slews down.
     MotionCommand jitter;
-    jitter.vx = 0.0005f;  // below the 1e-3 gamepad activity threshold
+    jitter.vx = 0.0005f;  // below the 0.05 command deadzone
     const TickOutput tiny =
         source_rt.tick(0.10, good, ActionSet{}, jitter, true, KeyPulse{});
-    CHECK(std::fabs(tiny.command.vx - 0.1f) < 1e-6f);  // still keyboard
+    CHECK(std::fabs(tiny.command.vx - 0.06f) < 1e-6f);  // 0.10 - 2.0*0.02
+
+    // A centred fresh pad stops the robot instead of restoring the keyboard
+    // setpoint (0.06 - 0.04, then 0.02 - 0.04 clamped at zero).
+    const TickOutput centered =
+        source_rt.tick(0.12, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+    CHECK(std::fabs(centered.command.vx - 0.02f) < 1e-6f);
+
+    const TickOutput stopped =
+        source_rt.tick(0.14, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+    CHECK(stopped.command.vx == 0.0f);
   }
 
   // [3] Gamepad actions are merged with (not replaced by) keyboard actions:
@@ -129,14 +144,14 @@ void test_replay() {
               .behavior == Behavior::kStand);
 
     const TickOutput stand_out =
-        gate_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, true, tap("w"));
+        gate_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, false, tap("w"));
     CHECK(stand_out.behavior == Behavior::kStand);
     CHECK(stand_out.command.vx == 0.0f);
     CHECK(stand_out.command.vy == 0.0f);
     CHECK(stand_out.command.wz == 0.0f);
 
     const TickOutput vel_out =
-        gate_rt.tick(0.04, good, ActionSet{}, MotionCommand{}, true, tap("3"));
+        gate_rt.tick(0.04, good, ActionSet{}, MotionCommand{}, false, tap("3"));
     CHECK(vel_out.behavior == Behavior::kVelocity);
     CHECK(vel_out.command.vx > 0.0f);
   }
@@ -146,28 +161,29 @@ void test_replay() {
   //     resumes.
   {
     Runtime recover_rt(RuntimeConfig{});
-    recover_rt.tick(0.00, good, ActionSet{}, MotionCommand{}, true, tap("3"));
-    recover_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, true, tap("w"));
+    // Keyboard-only session: the pad is lost for every tick in this block.
+    recover_rt.tick(0.00, good, ActionSet{}, MotionCommand{}, false, tap("3"));
+    recover_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, false, tap("w"));
     const TickOutput rolling =
-        recover_rt.tick(0.04, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+        recover_rt.tick(0.04, good, ActionSet{}, MotionCommand{}, false, KeyPulse{});
     CHECK(rolling.command.vx > 0.0f);
 
     RobotSnapshot degraded_robot;
     degraded_robot.roll = 0.4f;
     const TickOutput degraded = recover_rt.tick(0.06, degraded_robot, ActionSet{},
-                                               MotionCommand{}, true, KeyPulse{});
+                                               MotionCommand{}, false, KeyPulse{});
     CHECK(degraded.safety == SafetyLevel::kDegraded);
     CHECK(!degraded.latched);
     CHECK(degraded.behavior == Behavior::kVelocity);  // DEGRADED keeps behavior
     CHECK(degraded.command.vx == 0.0f);
 
     const TickOutput still_degraded = recover_rt.tick(
-        0.08, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+        0.08, good, ActionSet{}, MotionCommand{}, false, KeyPulse{});
     CHECK(still_degraded.safety == SafetyLevel::kDegraded);
     CHECK(still_degraded.command.vx == 0.0f);
 
     const TickOutput recovered =
-        recover_rt.tick(0.6, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+        recover_rt.tick(0.6, good, ActionSet{}, MotionCommand{}, false, KeyPulse{});
     CHECK(recovered.safety == SafetyLevel::kOk);
     CHECK(!recovered.latched);
     CHECK(recovered.command.vx > 0.0f);  // mux active again
@@ -181,16 +197,16 @@ void test_replay() {
     RuntimeConfig slow_cfg;
     slow_cfg.command.accel_limit = 0.5f;
     Runtime dt_rt(slow_cfg);
-    dt_rt.tick(0.00, good, ActionSet{}, MotionCommand{}, true, tap("3"));
-    dt_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, true, tap("w"));
+    dt_rt.tick(0.00, good, ActionSet{}, MotionCommand{}, false, tap("3"));
+    dt_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, false, tap("w"));
 
     const TickOutput gap =
-        dt_rt.tick(10.0, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+        dt_rt.tick(10.0, good, ActionSet{}, MotionCommand{}, false, KeyPulse{});
     CHECK(std::fabs(gap.command.vx - 0.035f) < 1e-6f);  // 0.01 + 0.025
     CHECK(gap.command.vx < 0.1f);                       // did not reach target
 
     const TickOutput backwards =
-        dt_rt.tick(9.9, good, ActionSet{}, MotionCommand{}, true, KeyPulse{});
+        dt_rt.tick(9.9, good, ActionSet{}, MotionCommand{}, false, KeyPulse{});
     CHECK(std::fabs(backwards.command.vx - 0.035f) < 1e-6f);  // dt clamped to 0
   }
 
@@ -281,7 +297,7 @@ void test_replay() {
     CHECK(held.behavior == Behavior::kVelocity);
 
     const TickOutput step =
-        calib_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, true, tap("w"));
+        calib_rt.tick(0.02, good, ActionSet{}, MotionCommand{}, false, tap("w"));
     CHECK(std::fabs(step.command.vx - 0.04f) < 1e-6f);
     CHECK(std::fabs(calib_rt.command().vx - step.command.vx) < 1e-6f);
     CHECK(std::fabs(calib_rt.command().vx - 0.1f) > 1e-6f);  // not the target
@@ -292,7 +308,7 @@ void test_replay() {
     Runtime first_rt(RuntimeConfig{});
     first_rt.setCurrentBehavior(Behavior::kVelocity);
     const TickOutput first_tick =
-        first_rt.tick(5.0, good, ActionSet{}, MotionCommand{}, true, tap("w"));
+        first_rt.tick(5.0, good, ActionSet{}, MotionCommand{}, false, tap("w"));
     CHECK(first_tick.behavior == Behavior::kVelocity);
     CHECK(first_tick.command.vx == 0.0f);
   }
