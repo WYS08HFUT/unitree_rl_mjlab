@@ -38,3 +38,71 @@ video.
 - The E-stop segment renders `kPassive` as zero position gain; the real
   `State_Passive` uses damping-only gains, which is the same qualitative
   collapse.
+
+## Target following + obstacle avoidance (flat → rough)
+
+Video: `doc/demo/go2-flat-to-rough-target.mp4` (34.6 s, 1280×720 @ 30 fps).
+
+Two segments, both driven by the exported ONNX policy at 50 Hz in MuJoCo:
+
+| Stage | Policy | Terrain | Scene |
+|---|---|---|---|
+| 1 | `Unitree-Go2-Flat`, 1999 iters | flat | moving target + 4 obstacles |
+| 2 | `Unitree-Go2-Rough-NoScan`, 3000 iters (resumed from flat) | smooth 0.25 m bumps | moving target + 4 obstacles |
+
+The high-level planner keeps a 1.2 m standoff from a target moving on a square
+loop and adds a potential-field repulsion from the known obstacle positions.
+Balance and gait come from the PPO policy; the planner only outputs `(vx, vz)`.
+**The planner uses ground-truth target/obstacle positions — there is no onboard
+perception in this demo.**
+
+### Training
+
+```bash
+# Stage 1: flat
+WANDB_MODE=offline .venv/bin/python scripts/train.py Unitree-Go2-Flat \
+  --env.scene.num-envs=4096 --agent.max-iterations=2000
+
+# Stage 2: rough terrain without terrain perception (matches deploy.yaml)
+# Resumes from the flat checkpoint; same experiment name keeps one log root.
+WANDB_MODE=offline .venv/bin/python scripts/train.py Unitree-Go2-Rough-NoScan \
+  --env.scene.num-envs=4096 --agent.max-iterations=3000 \
+  --agent.experiment-name=go2_velocity \
+  --agent.resume=True \
+  --agent.load-run=<flat-run-dir> --agent.load-checkpoint=model_1999.pt
+```
+
+`Unitree-Go2-Rough-NoScan` is a repo-local task variant that keeps the rough
+terrain generator but removes `height_scan`/`terrain_scan`, so its actor
+observation is the 47-dim deploy contract (`deploy.yaml`) and the policy can be
+run in plain MuJoCo or on the robot without a terrain sensor.
+
+Exported policies used for the video live in `demo/policies/`:
+
+- `flat.onnx` — `Unitree-Go2-Flat` (iter 1999)
+- `rough.onnx` — `Unitree-Go2-Rough-NoScan` (iteration 3000)
+
+### Rendering
+
+```bash
+.venv/bin/python demo/go2_demo.py \
+  --onnx demo/policies/flat.onnx --flat --duration 16 \
+  --stage "STAGE 1 · FLAT TERRAIN" --out doc/demo/stage1-flat.mp4
+
+.venv/bin/python demo/go2_demo.py \
+  --onnx demo/policies/rough.onnx --duration 16 \
+  --stage "STAGE 2 · ROUGH TERRAIN" --out doc/demo/stage2-rough.mp4
+
+.venv/bin/python demo/compose_video.py \
+  --segments doc/demo/stage1-flat.mp4 doc/demo/stage2-rough.mp4 \
+  --out doc/demo/go2-flat-to-rough-target.mp4
+```
+
+### Known limitations
+
+- No onboard perception: target and obstacles are privileged positions.
+- The rough policy is proprioception-only (no height scan), trained on mjlab's
+  rough terrain; the demo bumps are smoothed heightfield waves, not stairs.
+- Speed tracking is imperfect (rough policy ≈0.4–0.5 m/s average for 0.6 m/s
+  commands), and the robot occasionally pauses to turn.
+- This is a MuJoCo/ONNX demo, not the `unitree_mujoco + go2_ctrl` DDS stack.

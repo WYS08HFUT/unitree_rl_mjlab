@@ -136,6 +136,24 @@ def unitree_go2_rough_env_cfg(
   return cfg
 
 
+def unitree_go2_rough_noscan_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Rough terrain with proprioception only (no height scan).
+
+  Matches the deploy.yaml observation contract so the exported policy can be
+  run in plain MuJoCo / on the robot without a terrain sensor.
+  """
+  cfg = unitree_go2_rough_env_cfg(play=play)
+
+  cfg.scene.sensors = tuple(
+    s for s in (cfg.scene.sensors or ()) if s.name != "terrain_scan"
+  )
+  del cfg.observations["actor"].terms["height_scan"]
+  del cfg.observations["critic"].terms["height_scan"]
+  return cfg
+
+
 def unitree_go2_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create Unitree Go2 flat terrain velocity configuration."""
   cfg = unitree_go2_rough_env_cfg(play=play)

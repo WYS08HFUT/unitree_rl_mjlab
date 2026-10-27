@@ -4,6 +4,7 @@ from src.tasks.velocity.rl import VelocityOnPolicyRunner
 from .env_cfgs import (
   unitree_go2_flat_env_cfg,
   unitree_go2_rough_env_cfg,
+  unitree_go2_rough_noscan_env_cfg,
 )
 from .rl_cfg import unitree_go2_ppo_runner_cfg
 
@@ -12,6 +13,14 @@ register_mjlab_task(
   env_cfg=unitree_go2_rough_env_cfg(),
   play_env_cfg=unitree_go2_rough_env_cfg(play=True),
   rl_cfg=unitree_go2_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Unitree-Go2-Rough-NoScan",
+  env_cfg=unitree_go2_rough_noscan_env_cfg(),
+  play_env_cfg=unitree_go2_rough_noscan_env_cfg(play=True),
+  rl_cfg=unitree_go2_ppo_runner_cfg("go2_rough_noscan"),
   runner_cls=VelocityOnPolicyRunner,
 )
 
