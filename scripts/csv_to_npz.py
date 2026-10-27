@@ -1,3 +1,8 @@
+from _bootstrap import add_repo_root_to_path, patch_warp_context_api
+
+add_repo_root_to_path()
+patch_warp_context_api()
+
 from typing import Any
 
 import numpy as np

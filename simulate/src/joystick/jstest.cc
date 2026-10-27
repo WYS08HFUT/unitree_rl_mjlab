@@ -2,7 +2,7 @@
 #include <iostream>
 #include <map>
 #include "joystick.h"
-
+#include<cstdint>
 #define GAMEPAD_TYPE 1 // 1: XBOX, 0: SWITCH
 #define MAX_AXES_VALUE 32768
 #define MIN_AXES_VALUE -32768
