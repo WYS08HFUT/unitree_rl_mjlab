@@ -106,3 +106,32 @@ Exported policies used for the video live in `demo/policies/`:
 - Speed tracking is imperfect (rough policy ≈0.4–0.5 m/s average for 0.6 m/s
   commands), and the robot occasionally pauses to turn.
 - This is a MuJoCo/ONNX demo, not the `unitree_mujoco + go2_ctrl` DDS stack.
+
+## Orbit target following with obstacles on the track
+
+Video: `doc/demo/go2-orbit-follow.mp4` (31.8 s, 1280×720 @ 30 fps).
+
+- Target sphere orbits the origin at **R = 2.2 m, 0.60 m/s** (23.0 s/lap), floating at 0.9 m.
+- **4 obstacle cubes** sit on the track at 50°/135°/220°/305°.
+- The robot starts at the center and follows the target for ~1.3 laps.
+- **No new training**: this uses the existing flat policy (`demo/policies/flat.onnx`,
+  iteration 1999). The planner is `demo/orbit_demo.py`:
+  tangential velocity feedforward + radial correction to a 0.9 m standoff +
+  tangential steering around cubes.
+- Scene preview assets: `doc/demo/orbit-scene-top.png`,
+  `doc/demo/orbit-scene-persp.png`, `doc/demo/orbit-scene-preview.mp4`
+  (`demo/orbit_scene.py`, no policy loaded).
+
+Verification (30 s run): body height stayed **0.307–0.326 m**, closest approach
+to a cube was **0.62 m**, target distance settled at **0.6–1.4 m** after the
+initial 2.2 m approach.
+
+```bash
+.venv/bin/python demo/orbit_demo.py \
+  --onnx demo/policies/flat.onnx --duration 30 \
+  --out doc/demo/go2-orbit-follow.mp4
+```
+
+Known limitations: the planner uses true target/cube positions (no onboard
+perception), the target is a floating marker, the ground is flat, and this is a
+MuJoCo/ONNX demo rather than the `unitree_mujoco + go2_ctrl` stack.
